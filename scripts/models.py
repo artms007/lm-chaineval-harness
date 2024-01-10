@@ -1,9 +1,9 @@
 import torch
 import os
+import json
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline, BitsAndBytesConfig
 import openai
 from openai import OpenAI
-import json
 import boto3
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
