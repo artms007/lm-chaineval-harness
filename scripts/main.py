@@ -12,22 +12,27 @@ from dataloaders import load_testdata
 from templates import load_template
 from evaluators import load_evaluator
 
+debug_mode = False
 
-def debug_print(debug_mode, *messages):
-    """Print debug messages if debug mode is enabled."""
+def debug_print(*messages):
+    """
+    debug_mode がTrue のとき、デバッグ出力する
+    """
+    global debug_mode
     if debug_mode:
         print("🐥", *messages)
         
 
 def main():
-    args = parse_args_and_config()
+    global debug_mode
 
+    args = parse_args_and_config()
     debug_mode = args.debug_mode
     quantize = args.quantize_model
-    debug_print(debug_mode, "Quantization:\n", quantize)
+    debug_print("Quantization:\n", quantize)
 
     model = load_model(args.model_path, args.openai_api_key, args.aws_access_key_id, args.aws_secret_access_key, args.hf_token, args.model_args, quantize)
-    debug_print(debug_mode, "Model loaded:\n", model)
+    debug_print("Model loaded:\n", model)
 
     dataset = load_testdata(args.dataset_path, args.dataset_args)
     debug_print(args.debug_mode, "Dataset loaded:\n", len(dataset), "entries")
@@ -51,9 +56,9 @@ def main():
         prompt = template.process(data)
         data['reference'] = template.process_reference(data)
         data['model_input'] = prompt
-        debug_print(debug_mode, "Input:\n", data['model_input'])
+        debug_print("Input:\n", data['model_input'])
         data['model_output'] = model.generate(prompt)
-        debug_print(debug_mode, "Output_Sample:\n", data['model_output'][0])
+        debug_print("Output_Sample:\n", data['model_output'][0])
         output_lang, output_format, formatted_output_list, format_checked_list = template.collate(prompt, data['model_output'])
         data['output_format'] = output_format
 
@@ -61,14 +66,14 @@ def main():
             data['format_checked'] = format_checked_list
         
         data['formatted_output'] = formatted_output_list
-        debug_print(debug_mode, "Formatted_Sample:\n", data['formatted_output'][0])
+        debug_print("Formatted_Sample:\n", data['formatted_output'][0])
 
         if evaluator:
             if data['formatted_output'] is None:
                 data['item_score'] = 0.0
             else:
                 data['item_score'] = evaluator.item_calculate(data, record, output_lang)
-                debug_print(debug_mode, "Score:\n", data['item_score'])
+                debug_print("Score:\n", data['item_score'])
 
         save_results(args.result_path, [data], record)
     
