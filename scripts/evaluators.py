@@ -182,11 +182,10 @@ def load_evaluator(metric_id, args):
 
 def compose_evaluators(args):
     metrics = args['metrics']
-    if metrics is None:
-        return None
     evaluators = []
-    for metric_id in metrics.split(','):
-        eval = load_evaluator(metric_id.strip(), args)
-        if eval:
-            evaluators.append(eval)
+    if metrics is not None:
+        for metric_id in metrics.split(','):
+            eval = load_evaluator(metric_id.strip(), args)
+            if eval:
+                evaluators.append(eval)
     return evaluators

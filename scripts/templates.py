@@ -227,7 +227,7 @@ class TextCollator():
         return text
 
 class TemplateProcessor:
-    def __init__(self, prompt: str, reference: str):
+    def __init__(self, prompt: str = None, reference: str = None):
         self.prompt = prompt or ''
         self.reference = reference or ''
 
@@ -251,6 +251,11 @@ class TemplateProcessor:
         except IndexError as e:
             raise IndexError(f"Index error in reference formatting: {e}")
 
+    def extract(self, text):
+        if isinstance(text, list):
+            return [self.extract(t) for t in text]
+        return text
+
 
 # =====================
 # Utility Function
@@ -264,6 +269,5 @@ def load_template(args: dict):
                 template_data = json.load(file)
         else:
             raise ValueError("Unsupported template format. Please provide a .json file.")
-        
-    return TemplateProcessor(template_data)
+    return TemplateProcessor()
     

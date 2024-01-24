@@ -36,17 +36,18 @@ class Model(object):
     def __repr__(self):
         return self.model_path
     
-    def generate(self, prompt: str)->str:
+    def generate(self, prompt: str, n=1)->str:
         return f"Generated response for: {prompt}"
 
 class TestModel(Model):
 
-    def generate(self, prompt: str) -> list:
+    def generate(self, prompt: str, n=1) -> list:
         test_results = [
             f"{prompt}\n###Output\n{i}\n"
-            for i in range(self.num_sequences)
+            for i in range(n)
         ]
         return test_results
+
 
 class OpenAIModel(Model):
     def __init__(self, model_path, args):
@@ -58,17 +59,17 @@ class OpenAIModel(Model):
             "temperature": args['temperature|=0.2'],
             "top_p": args['top_p|=0.95'],
             "max_tokens": args['max_tokens|max_length|=512'], 
-            "n": args['n|=1'],
         }
         self.openai_api_key = args['openai_api_key|api_key|!error']
         self.model_args = default_args
 
-    def generate(self, prompt: str) -> list:
+    def generate(self, prompt: str, n=1) -> list:
         client = OpenAI(api_key=self.openai_api_key)
         
         response = client.chat.completions.create(
             model=self.model_path,
             messages=[{"role": "user", "content": prompt}],
+            n=n,
             **self.model_args
         )
         responses = [choice.message.content for choice in response.choices]
@@ -102,7 +103,7 @@ class BedrockModel(Model):
 
         return prompt
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, n=1) -> str:
         bedrock = boto3.client("bedrock-runtime",
                 aws_access_key_id=self.aws_access_key_id,
                 aws_secret_access_key=self.aws_secret_access_key,
@@ -143,7 +144,6 @@ class HFModel(Model):
                 "temperature": args['temperature|=0.2'],
                 "top_p": args['top_p|=0.95'],
                 "return_full_text": False,
-                "num_return_sequences": 1,
             }
         else:
             self.generator_args = {
@@ -152,7 +152,7 @@ class HFModel(Model):
                 "temperature": args['temperature|=0.2'],
                 "top_p": args['top_p|=0.95'],
                 "return_full_text": False,
-                "num_return_sequences": 1,
+                "num_return_sequences": self.num_sequences,
             }
 
         self.generator = pipeline(
@@ -165,7 +165,7 @@ class HFModel(Model):
             # **generator_args
         )
     
-    def generate(self, prompt: str) -> list:
+    def generate(self, prompt: str, n=1) -> list:
         # pipelineなしで実装----------------------------------
         # input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
         # generated_ids = self.model.generate(input_ids, **self.model_args)
@@ -173,6 +173,7 @@ class HFModel(Model):
         # ----------------------------------
         generated_texts = self.generator(prompt, 
                                          ### ここは何を指定するのか？
+                                        num_return_sequences = n,
                                          **self.generator_args, 
                                          pad_token_id=self.generator.tokenizer.eos_token_id)
         generated_texts_list = [item['generated_text'] for item in generated_texts]

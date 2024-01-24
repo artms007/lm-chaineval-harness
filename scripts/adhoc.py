@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import re
 
 def parse_argument_value(value):
@@ -54,7 +55,14 @@ def load_yaml(config_file):
                     loaded_data[key] = value
         return loaded_data
 
+def load_json(config_file):
+    with open(config_file, 'r') as file:
+        return json.load(file)
+
+
 def load_config(config_file):
+    if config_file.endswith('.json'):
+        return load_json(config_file)
     if config_file.endswith('.yaml'):
         return load_yaml(config_file)
     return {}
@@ -71,7 +79,7 @@ class AdhocArguments(object):
             if key == expand_config:
                 self.load_config(value)
             else:
-                self.args[key] = value
+                self._args[key] = value
         if default_args:
             lost_found = False
             for key, value in default_args.items():
@@ -136,6 +144,14 @@ class AdhocArguments(object):
         if not show_notion:
             self.utils_print(f'スペルミスがないか確認してください//Check if typos exist.')
 
+    def save_as_json(self, file_path):
+        directory = os.path.dirname(file_path)
+        if not os.path.exists(directory) and directory != '':
+            os.makedirs(directory)
+
+        with open(file_path, 'w', encoding='utf-8') as w:
+            print(json.dumps(self._args, ensure_ascii=False, indent=4), file=w)
+
     def raise_uninstalled_module(self, module_name):
         self.utils_print(f'{module_name}がインストールされていません//Uninstalled {module_name}')
         print(f'pip3 install -U {module_name}')
@@ -153,7 +169,7 @@ class AdhocArguments(object):
     def verbose_print(self, *args, **kwargs):
         print("🐓", *args, **kwargs)
 
-def adhoc_argument_parser(default_args:dict=None, use_environ=True, load_config=None):
+def adhoc_argument_parser(default_args:dict=None, use_environ=True, expand_config=None):
     argv = sys.argv[1:]
     args={'_': ''}
     for arg, next_value in zip(argv, argv[1:] + ['--']):
@@ -161,10 +177,10 @@ def adhoc_argument_parser(default_args:dict=None, use_environ=True, load_config=
         if value is not None:
             args[key.replace('-', '_')] = value
     del args['_']
-    if load_config and load_config in args:
-        ## TODO: Integrate YAML Config
-        ...
-    return AdhocArguments(args, default_args=default_args, use_environ=use_environ)
+    return AdhocArguments(args, 
+                          expand_config=expand_config, 
+                          default_args=default_args, 
+                          use_environ=use_environ)
 
 if __name__ == '__main__':
     args = adhoc_argument_parser()

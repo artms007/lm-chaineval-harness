@@ -1,12 +1,44 @@
-import argparse
+from typing import List
+import json
+import os
 from tqdm import tqdm
-from config_utils import parse_args_and_config, load_config
-from results_handling import load_existing_results, group_and_aggregate_results, find_id_value, find_unprocessed_data, save_results
 from models import load_model
 from dataloaders import load_testdata
 from templates import load_template
 from evaluators import compose_evaluators
-from scripts.adhoc import adhoc_argument_parser
+from adhoc import adhoc_argument_parser
+
+
+def guess_uniquekey(dataset: List[dict]):
+    for key in dataset[0].keys():
+        if 'id' in key.lower():
+            return key
+    return None
+
+def load_records(result_path, dataset):
+    """Load existing results from the file."""
+    try:
+        with open(result_path, 'r', encoding='utf-8') as f:
+            return [json.loads(line) for line in f]
+    except FileNotFoundError:
+        keyid = guess_uniquekey(dataset)
+        if keyid:
+            return [{'unique_id': data[keyid]} for data in dataset]
+        else:
+            return [{'unique_id': f'index/{n}'} for n in range(len(dataset))]
+
+def save_records(result_path, records, args=None):
+    directory = os.path.dirname(result_path)
+    if not os.path.exists(directory) and directory != '':
+        os.makedirs(directory)
+
+    with open(result_path, 'w', encoding='utf-8') as w:
+        for record in records:
+            print(json.dumps(record, ensure_ascii=False), file=w)
+
+    if args:
+        savefile = result_path.replace('.jsonl', '_config.json')
+        args.save_as_json(savefile)
 
 def main():
     args = adhoc_argument_parser()
@@ -14,19 +46,18 @@ def main():
     dataset = load_testdata(args)
     args.verbose_print(f"Dataset loaded: {len(dataset)} entries")
 
-    template = load_template(args.template_path)
+    template = load_template(args)
 
     result_path = args['result_path|record_path']
-    records = load_existing_results(result_path, len(dataset))
-    # existing_results = group_and_aggregate_results(loaded_results)
-    # unprocessed_data = find_unprocessed_data(dataset, existing_results)
+    if result_path is None:
+        result_path = 'dummy.jsonl'
+    records = load_records(result_path, dataset)
 
     model = load_model(args)
-    args.verbose_print(f"Model loaded: {model}")
-
     if model:
         n = args['num_return_sequences|n|N|=1']
-        for i, record in enumerate(tqdm(records)):
+        args.verbose_print(f"Model loaded: {model} n={n}")
+        for i, record in enumerate(tqdm(records, desc=f'Inferencing {model}')):
             source = dataset[i]
             if 'model_input' not in record:
                 record['model_input'] = template.create_prompt(source)
@@ -44,7 +75,7 @@ def main():
                 record['extracted_result'] = template.extract(record['model_output'])
             if 'extracted_results' not in record:
                 record['extracted_results'] = template.extract(record['model_outputs'])
-            save_results(result_path, records)
+            save_records(result_path, records)
 
     evaluators = compose_evaluators(args)
     if len(evaluators) > 0:
@@ -52,8 +83,9 @@ def main():
         results = {}
         for eval in evaluators:
             results.update(eval.score(records))
-            save_results(result_path, records)
-        print(f"Total_score: {results}")
+            save_records(result_path, records)
+        print(f"Scores: {results}")
+    save_records(result_path, records, args)
 
 if __name__ == '__main__':
     main()
