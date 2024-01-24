@@ -7,15 +7,17 @@ os.environ["HF_ALLOW_CODE_EVAL"] = "1"
 # Base Class
 # =====================
 
+#--metrics=pass@1,pass@k  --k=1
+
 class Evaluator(object):
     """
     Base class for evaluators that use a model to obtain answers for generated prompts,
     evaluate them based on specified metrics, and calculate scores.
     """
 
-    def __init__(self, metric_id:str, eval_path:str, args:dict):
-        self.metric_id = metric_id
-        self.eval = None if eval_path is None else load(eval_path) 
+    def __init__(self, metric_id:str, args:dict, load_path:str = None):
+        self.metric_id = metric_id # pass@1 pass@2
+        self.eval = None if load_path is None else load(load_path)  # code_eval
         self.args = args
 
     def __repr__(self):
@@ -26,15 +28,29 @@ class Evaluator(object):
 
     def score(self, records):
         scores = []
-        for item in records:
-            if self.metric_id not in item:
-                self.score_item(item)
-            scores.append(item[self.metric_id])
+        for record in records:
+            if self.metric_id not in record:
+                self.score_item(record)
+            scores.append(record[self.metric_id])
         if scores:
             total_score = sum(scores) / len(scores)
         else:
             total_score = 0.0
         return {self.metric_id: total_score}
+
+# HumanEval pass@1
+#
+
+def humaneval_extract(prompt, generated_text):
+    # if generated_text == '':
+    #     return 'Empty Code!!'
+    stop_sequences=["\nclass", "\ndef", "\n#", "\n@", "\nprint", "\nif", "\n```"]
+    min_stop_index = len(generated_text)
+    for seq in stop_sequences:
+        stop_index = generated_text.find(seq)
+        if stop_index != -1 and stop_index < min_stop_index:
+            min_stop_index = stop_index
+    return prompt + "\n" + generated_text[:min_stop_index]
 
 
 class CodeEvalEvaluator(Evaluator):
@@ -42,26 +58,14 @@ class CodeEvalEvaluator(Evaluator):
     コード評価用Evaluatorクラス。HuggingFaceのevaluate-metric/code_evalを使用してスコアを算出する。
     """
 
-    def is_blank(self, candidates):
-        """
-        何をやっているのか？
-        """
-        if isinstance(candidates, list):
-            for sublist in candidates:
-                if not isinstance(sublist, list) or not all(isinstance(item, str) and item.strip() == '' for item in sublist):
-                    return False
-            return True
-        return False
-
-    def score_item(self, data):
-        test_cases = [data['reference']]
-        candidates = [data['formatted_output']]
-        if not self.is_blank(candidates):
-            pass_at_k, results = self.eval.compute(references=test_cases, predictions=candidates, k=[1])
-            data['code_eval'] = results
-            data[self.metric_id] = pass_at_k['pass@1']
-        else:
-            data[self.metric_id] = 0.0
+    def score_item(self, record):
+        test_cases = [record['reference']]
+        extracted = [humaneval_extract(record['prompt'], x) for x in record['extracted_results']]
+        record['generated_code'] = extracted
+        candidates = [extracted]
+        pass_at_k, results = self.eval.compute(references=test_cases, predictions=candidates, k=[1])
+        record['code_eval_results'] = results
+        record[self.metric_id] = pass_at_k['pass@1']
 
 class ExactMatchEvaluator(Evaluator):
 
@@ -71,67 +75,37 @@ class ExactMatchEvaluator(Evaluator):
         data['exact_match'] = self.metric.compute(predictions=predictions, references=references)['exact_match']
     
 
-# =====================
-# Testing Code
-# =====================
-
-class TestEvaluator(Evaluator):
-    """
-    テスト用Evaluatorクラス。単に文字列の長さでスコアを算出する。
-    """
-
-    # def calculate(self, dataset, record):
-    #     # データセット内のすべてのoutputの長さの平均を計算してスコアとする
-    #     total_length = sum(len(data['formatted_output']) for data in dataset)
-    #     result_score = total_length / len(dataset) if dataset else 0
-    #     for data in dataset:
-    #         data['test_result_score'] = result_score
-    #     return result_score, dataset
-
-    def item_calculate(self, data, record, output_lang):
-        # 個々のoutputの長さをスコアとする
-        item_score = len(data['formatted_output'])
-        self.item_scores.append(item_score)
-        return item_score
+# 日本語用のtokenizer
+# Python: 正規表現による簡易版形態素解析
+# https://qiita.com/kinoshita_yuri/items/e15f143981f1616994ed
     
-    def total_calculate(self, dataset, record, output_lang):
-        if self.item_scores:
-            total_score = sum(self.item_scores) / len(self.item_scores)
+def tokenize_japaneses(text):
+    pJA = re.compile(r"/|[A-Z]+|[a-z]+|[ァ-ンー]+|[ぁ-ん-]+|[ァ-ヶ]+|[一-龍]+|[。、]|/")
+    text_m = []
+    m = pJA.findall(text)
+    for row in m:
+        if re.compile(r'^[あ-ん]+$').fullmatch(row):
+            if row[0] in 'はがのにへともでを':
+                prefix = row[0]
+                token = row[1:]
+                text_m.append(prefix)
+                if (len(token) > 0):
+                    text_m.append(token)
+            elif row[-2:] in 'のでからまで':
+                token = row[0:-2]
+                suffix = row[-2:]
+                text_m.append(token)
+                text_m.append(suffix)
+            elif row[-1:] in 'もはがでを':
+                token = row[0:-1]
+                suffix = row[-1:]
+                text_m.append(token)
+                text_m.append(suffix)
+            else:
+                text_m.append(row)
         else:
-            total_score = 0
-        return total_score
-
-
-# =====================
-# Evaluation Evaluator
-# =====================
-
-class AccuracyEvaluator(Evaluator):
-    # 正確性評価用のEvaluatorクラスの実装は省略
-
-
-    # def calculate(self, dataset, record):
-        
-    #     # 正解データと予測データのリストを準備
-    #     references = [d['reference'] for d in dataset]
-    #     candidates = [d['model_output'] for d in dataset]
-    #     # accuracy スコアを計算
-    #     score = self.metric.compute(predictions=candidates, references=references)['accuracy']
-
-    #     for data in dataset:
-    #         data['accuracy_score'] = score
-
-    #     return score, dataset
-
-    def item_calculate(self, data, record, output_lang):
-        return None
-    
-    def total_calculate(self, dataset, record, output_lang):
-        predictions = [int(data['model_output']) for data in dataset]
-        references = [int(data['reference']) for data in dataset]
-        total_score = self.metric.compute(predictions=predictions, references=references)['accuracy']
-        return total_score
-
+            text_m.append(row)
+    return text_m
 
 class BLEUEvaluator(Evaluator):
     # def calculate(self, dataset, record):
@@ -147,39 +121,9 @@ class BLEUEvaluator(Evaluator):
 
     #     return score, dataset
 
-    # 日本語用のtokenizer
-    # Python: 正規表現による簡易版形態素解析
-    # https://qiita.com/kinoshita_yuri/items/e15f143981f1616994ed
-    def tokenize_ja(text):
-        pJA = re.compile(r"/|[A-Z]+|[a-z]+|[ァ-ンー]+|[ぁ-ん-]+|[ァ-ヶ]+|[一-龍]+|[。、]|/")
-        text_m = []
-        m = pJA.findall(text)
-        for row in m:
-            if re.compile(r'^[あ-ん]+$').fullmatch(row):
-                if row[0] in 'はがのにへともでを':
-                    prefix = row[0]
-                    token = row[1:]
-                    text_m.append(prefix)
-                    if (len(token) > 0):
-                        text_m.append(token)
-                elif row[-2:] in 'のでからまで':
-                    token = row[0:-2]
-                    suffix = row[-2:]
-                    text_m.append(token)
-                    text_m.append(suffix)
-                elif row[-1:] in 'もはがでを':
-                    token = row[0:-1]
-                    suffix = row[-1:]
-                    text_m.append(token)
-                    text_m.append(suffix)
-                else:
-                    text_m.append(row)
-            else:
-                text_m.append(row)
-        return text_m
     
-    def item_calculate(self, data, record, output_lang):
-        predictions = [data['formatted_output']]
+    def score_item(self, data):
+        predictions = [data['extracted_result']]
         references = [[data['reference']]]
         if output_lang == 'ja':
             item_score = self.metric.compute(predictions=predictions, references=references, tokenier=tokenize_ja, smooth=True)['bleu']
@@ -229,35 +173,20 @@ class F1Evaluator(Evaluator):
 
 def load_evaluator(metric_id, args):
     if metric_id == "pass@1":
-        return CodeEvalEvaluator("code_eval", "pass@1", args)
+        return CodeEvalEvaluator("pass@1", args, load_path='code_eval')
     elif metric_id == "exact_match":
-        return ExactMatchEvaluator("exact_match", "exact_match", args)
+        return ExactMatchEvaluator("exact_match", args, load_path='exact_match')
     else:
         print(f"Unknown metric path: {metric_id}")
-
-class ComposeEvaluator(Evaluator):
-    def __init__(self):
-        self.evals = []
-
-    def __repr__(self):
-        return ','.join(repr(x) for x in self.evals)
-
-    def append(self, eval):
-        self.evals.append(eval)
     
-    def score(self, records):
-        results = {}
-        for eval in self.metrics:
-            results.update(eval.score(records))
-        return results
 
-def compose_evaluator(args):
+def compose_evaluators(args):
     metrics = args['metrics']
     if metrics is None:
         return None
-    composed = ComposeEvaluator()
-    for metric_id in metrics:
-        eval = load_evaluator(metric_id, args)
+    evaluators = []
+    for metric_id in metrics.split(','):
+        eval = load_evaluator(metric_id.strip(), args)
         if eval:
-            composed.append(eval)
-    return composed
+            evaluators.append(eval)
+    return evaluators

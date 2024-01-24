@@ -43,14 +43,35 @@ def _parse_key_value(key, next_value, args):
             args['files'] = files
     return key, None
 
+def load_yaml(config_file):
+    import yaml
+    loaded_data = {}
+    with open(config_file, 'r') as file:
+        config = yaml.safe_load(file)
+        for section, settings in config.items():
+            if settings is not None:
+                for key, value in settings.items():
+                    loaded_data[key] = value
+        return loaded_data
+
+def load_config(config_file):
+    if config_file.endswith('.yaml'):
+        return load_yaml(config_file)
+    return {}
+
 class AdhocArguments(object):
     """
     アドホックな引数パラメータ
     """
-    def __init__(self, args:dict, default_args:dict=None, use_environ=True):
-        self._args = args
+    def __init__(self, args:dict, expand_config=None, default_args:dict=None, use_environ=True):
+        self._args = {}
         self._used_keys = set()
         self._use_environ = use_environ
+        for key, value in args.items():
+            if key == expand_config:
+                self.load_config(value)
+            else:
+                self.args[key] = value
         if default_args:
             lost_found = False
             for key, value in default_args.items():
@@ -98,6 +119,12 @@ class AdhocArguments(object):
     def __contains__(self, key):
         return key in self._args
 
+    def load_config(self, config_file, merge_data=True):
+        loaded_data = load_config(config_file)
+        if merge_data:
+            self._args.update(loaded_data)
+        return loaded_data
+
     def utils_check(self):
         show_notion = True
         for key, value in self._args.items():
@@ -125,7 +152,6 @@ class AdhocArguments(object):
 
     def verbose_print(self, *args, **kwargs):
         print("🐓", *args, **kwargs)
-
 
 def adhoc_argument_parser(default_args:dict=None, use_environ=True, load_config=None):
     argv = sys.argv[1:]

@@ -1,6 +1,5 @@
 import json
 import re
-import ast
 import textwrap
 
 class TemplateProcessor:
@@ -223,7 +222,9 @@ class TemplateProcessor:
             formatted_output = formatted_output[0]
         return formatted_output
 
-
+class TextCollator():
+    def __call__(self, text):
+        return text
 
 class TemplateProcessor:
     def __init__(self, prompt: str, reference: str):
@@ -263,5 +264,6 @@ def load_template(args: dict):
                 template_data = json.load(file)
         else:
             raise ValueError("Unsupported template format. Please provide a .json file.")
+        
     return TemplateProcessor(template_data)
     
