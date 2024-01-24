@@ -109,6 +109,11 @@ class AdhocArguments(object):
         if not show_notion:
             self.utils_print(f'スペルミスがないか確認してください//Check if typos exist.')
 
+    def raise_uninstalled_module(self, module_name):
+        self.utils_print(f'{module_name}がインストールされていません//Uninstalled {module_name}')
+        print(f'pip3 install -U {module_name}')
+        sys.exit(1)
+
     def raise_unset_key(self, key, desc_ja=None, desc_en=None):
         desc_ja = f' ({desc_ja})' if desc_ja else ''
         desc_en = f' ({desc_en})' if desc_en else ''
