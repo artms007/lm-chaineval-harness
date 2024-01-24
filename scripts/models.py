@@ -1,3 +1,4 @@
+from typing import List
 import os, sys
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
@@ -36,18 +37,14 @@ class Model(object):
     def __repr__(self):
         return self.model_path
     
-    def generate(self, prompt: str, n=1)->str:
-        return f"Generated response for: {prompt}"
+    def generate_list(self, prompt: str, n=1) -> List[str]:
+        return [self.generate_text(prompt) for _ in range(n)]
 
 class TestModel(Model):
 
-    def generate(self, prompt: str, n=1) -> list:
-        test_results = [
-            f"{prompt}\n###Output\n{i}\n"
-            for i in range(n)
-        ]
+    def generate_list(self, prompt: str, n=1) -> List[str]:
+        test_results = [f"{prompt}\n###Output\n{i}\n" for i in range(n)]
         return test_results
-
 
 class OpenAIModel(Model):
     def __init__(self, model_path, args):
@@ -63,9 +60,8 @@ class OpenAIModel(Model):
         self.openai_api_key = args['openai_api_key|api_key|!error']
         self.model_args = default_args
 
-    def generate(self, prompt: str, n=1) -> list:
+    def generate_list(self, prompt: str, n=1) -> List[str]:
         client = OpenAI(api_key=self.openai_api_key)
-        
         response = client.chat.completions.create(
             model=self.model_path,
             messages=[{"role": "user", "content": prompt}],
@@ -103,7 +99,7 @@ class BedrockModel(Model):
 
         return prompt
 
-    def generate(self, prompt: str, n=1) -> str:
+    def generate_text(self, prompt: str) -> str:
         bedrock = boto3.client("bedrock-runtime",
                 aws_access_key_id=self.aws_access_key_id,
                 aws_secret_access_key=self.aws_secret_access_key,
@@ -165,7 +161,7 @@ class HFModel(Model):
             # **generator_args
         )
     
-    def generate(self, prompt: str, n=1) -> list:
+    def generate_list(self, prompt: str, n=1) -> List[str]:
         # pipelineなしで実装----------------------------------
         # input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
         # generated_ids = self.model.generate(input_ids, **self.model_args)

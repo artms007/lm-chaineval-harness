@@ -1,3 +1,4 @@
+from typing import List
 import json
 import re
 import textwrap
@@ -227,9 +228,9 @@ class TextCollator():
         return text
 
 class TemplateProcessor:
-    def __init__(self, prompt: str = None, reference: str = None):
-        self.prompt = prompt or ''
-        self.reference = reference or ''
+    def __init__(self, args):
+        self.prompt = args['prompt_template|=']
+        self.reference = args['reference_template|=']
 
     def create_prompt(self, data):
         """Creates a prompt using the loaded template and provided data."""
@@ -256,18 +257,33 @@ class TemplateProcessor:
             return [self.extract(t) for t in text]
         return text
 
+def has_all_keys(data: dict, keys:str):
+    for key in keys.split('|'):
+        if key not in data:
+            return False
+    return True
+
+def guess_template(data: dict):
+    if has_all_keys(data, 'prompt|test|entry_point'):
+        return {
+            "prompt_template": "{prompt}",
+            "reference_template": "\n{test}\ncheck({entry_point})\n"
+        }
+    return {}
 
 # =====================
 # Utility Function
 # =====================
 
-def load_template(args: dict):
-    template_path = args['template_path']
+def load_template(args: dict, dataset:List[dict]):
+    template_path = args['template|template_path']
     if template_path:
-        if template_path.endswith('.json'):
-            with open(template_path, 'r', encoding='utf-8') as file:
-                template_data = json.load(file)
-        else:
-            raise ValueError("Unsupported template format. Please provide a .json file.")
-    return TemplateProcessor()
+        args.load_config(template_path, overwrite=False)
+    if 'prompt_template' not in args:
+        config = guess_template(dataset[0])
+        args.update(config, overwrite=False)
+    template = TemplateProcessor(args)
+    args.verbose_print(f'プロンプトの確認\n{template.create_prompt(dataset[0])}')
+    args.verbose_print(f'参照データの確認\n{template.create_reference(dataset[0])}')
+    return template
     

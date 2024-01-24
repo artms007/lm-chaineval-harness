@@ -127,11 +127,31 @@ class AdhocArguments(object):
     def __contains__(self, key):
         return key in self._args
 
-    def load_config(self, config_file, merge_data=True):
+    def update(self, otherdict:dict, overwrite=True):
+        for key, value in otherdict.items():
+            if overwrite or key not in self._args:
+                self._args[key] = value
+
+    def load_config(self, config_file, merge_data=True, overwrite=True):
         loaded_data = load_config(config_file)
         if merge_data:
-            self._args.update(loaded_data)
+            self.update(loaded_data, overwrite=overwrite)
         return loaded_data
+
+    def subset(self, keys='', prefix=None):
+        subargs = {}
+        keys = set(keys.split('|'))
+        for key, value in self._args.items():
+            if key in keys:
+                self._used_keys.add(key)
+                subargs[key] = value
+            elif prefix and key.startswith(prefix):
+                self._used_keys.add(key)
+                key = key[len(prefix):]
+                if key.startswith('_'):
+                    key = key[1:]
+                subargs[key] = value
+        return subargs
 
     def utils_check(self):
         show_notion = True

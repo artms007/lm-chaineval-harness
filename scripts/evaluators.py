@@ -59,10 +59,11 @@ class CodeEvalEvaluator(Evaluator):
     """
 
     def score_item(self, record):
+        print('@', record)
         test_cases = [record['reference']]
-        extracted = [humaneval_extract(record['prompt'], x) for x in record['extracted_results']]
-        record['generated_code'] = extracted
-        candidates = [extracted]
+        extracted_code = [humaneval_extract(record['model_input'], x) for x in record['extracted_results']]
+        record['generated_code'] = extracted_code
+        candidates = [extracted_code]
         pass_at_k, results = self.eval.compute(references=test_cases, predictions=candidates, k=[1])
         record['code_eval_results'] = results
         record[self.metric_id] = pass_at_k['pass@1']
@@ -174,12 +175,14 @@ class F1Evaluator(Evaluator):
 def load_evaluator(metric_id, args):
     if metric_id == "pass@1":
         return CodeEvalEvaluator("pass@1", args, load_path='code_eval')
+    elif metric_id == "pass@k":
+        k = args['pass_at_k|k|=1']
+        return CodeEvalEvaluator(f"pass@{k}", args, load_path='code_eval')
     elif metric_id == "exact_match":
         return ExactMatchEvaluator("exact_match", args, load_path='exact_match')
     else:
-        print(f"Unknown metric path: {metric_id}")
+        print(f"未定義の評価尺度//Unknown metrics: {metric_id}")
     
-
 def compose_evaluators(args):
     metrics = args['metrics']
     evaluators = []
