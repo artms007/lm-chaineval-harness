@@ -3,13 +3,13 @@ import json
 from collections import defaultdict
 
 
-def load_existing_results(result_path):
+def load_existing_results(result_path, n):
     """Load existing results from the file."""
     try:
         with open(result_path, 'r', encoding='utf-8') as f:
             return [json.loads(line) for line in f]
     except FileNotFoundError:
-        return []
+        return [{} for _ in range(n)]
 
 
 def group_and_aggregate_results(results):

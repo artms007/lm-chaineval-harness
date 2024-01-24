@@ -1,8 +1,3 @@
-import os
-import time
-import yaml
-import argparse
-import json
 import argparse
 from tqdm import tqdm
 from config_utils import parse_args_and_config, load_config
@@ -10,7 +5,8 @@ from results_handling import load_existing_results, group_and_aggregate_results,
 from models import load_model
 from dataloaders import load_testdata
 from templates import load_template
-from evaluators import load_evaluator
+from evaluators import compose_evaluator
+from adhoc_argparse import adhoc_argument_parser
 
 debug_mode = False
 
@@ -85,6 +81,45 @@ def main():
         total_score = evaluator.total_calculate(all_data, record, output_lang)
         save_results(args.result_path, all_data, record, total_score)
         print("Total_score:\n", total_score)
+
+def main():
+    global debug_mode
+
+    args = adhoc_argument_parser()
+    debug_mode = args['debug_mode|=false']
+
+    model = load_model(args)
+    debug_print(f"Model loaded: {model}")
+
+    dataset = load_testdata(args)
+    debug_print(f"Dataset loaded: {len(dataset)} entries")
+
+    template = load_template(args.template_path)
+    filter = load_filter()
+
+    record_path = args['result_path']
+    records = load_existing_results(record_path, len(dataset))
+    # existing_results = group_and_aggregate_results(loaded_results)
+    # unprocessed_data = find_unprocessed_data(dataset, existing_results)
+
+    for i, record in enumerate(tqdm(records)):
+        source = dataset[i]
+        if 'model_input' not in record:
+            record['model_input'] = template.generate_prompt(source)
+        if 'model_output' not in record:
+            record['model_output'] = model.generate(record['model_input'])
+        if 'filtered_output' not in record:
+            record['filtered_output'] = filter(record['model_output'])
+
+    save_results(args.result_path, [data], record)
+
+    evaluator = compose_evaluator(args)
+
+    if evaluator:
+        debug_print(f"Metrics: {evaluator}")
+        results = evaluator.score(records)
+        save_results(args.result_path, all_data, record, total_score)
+        print(f"Total_score: {results}")
 
 if __name__ == '__main__':
     main()

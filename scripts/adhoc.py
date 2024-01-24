@@ -17,10 +17,10 @@ def parse_argument_value(value):
         return False
     return value
 
-key_pattern = re.compile(r'^[A-Za-z0-9\.\-_]+\=')
+_key_pattern = re.compile(r'^[A-Za-z0-9\.\-_]+\=')
 
 def _parse_key_value(key, next_value, args):
-    if key_pattern.match(key):
+    if _key_pattern.match(key):
         if key.startswith('--'):
             key = key[2:]
         key, _, value = key.partition('=')
@@ -44,8 +44,12 @@ def _parse_key_value(key, next_value, args):
     return key, None
 
 class AdhocArguments(object):
+    """
+    アドホックな引数パラメータ
+    """
     def __init__(self, args:dict, default_args:dict=None, use_environ=True):
         self._args = args
+        self._used_keys = set()
         self._use_environ = use_environ
         if default_args:
             lost_found = False
@@ -60,11 +64,10 @@ class AdhocArguments(object):
                     print(f'Option {key} is required. {value[0]}')
                     lost_found = True
                 else:
+                    self._used_keys.add(key)
                     args[key] = value
             if lost_found:
                 sys.exit(1)
-        for key, value in args.items():
-            setattr(self, key, value)
 
     def __repr__(self):
         return repr(self._args)
@@ -73,12 +76,17 @@ class AdhocArguments(object):
         keys = key.split('|')
         for key in keys:
             if key in self._args:
+                self._used_keys.add(key)
                 return self._args[key]
-        if self._use_environ:
-            for key in keys:
+            if key.startswith('='):
+                return parse_argument_value(key[1:])
+            if key.startswith('!'):
+                raise ValueError(f'{key[0]} is unset.')
+            if self._use_environ:
                 environ_key = key.upper()
                 if environ_key in os.environ:
                     value = parse_argument_value(os.environ[environ_key])
+                    self._used_keys.add(key)
                     self._args[key] = value
                     return value
         return None
@@ -86,6 +94,33 @@ class AdhocArguments(object):
     def __setitem__(self, key, value):
         self._args[key] = value
         setattr(self, key, value)
+
+    def __contains__(self, key):
+        return key in self._args
+
+    def utils_check(self):
+        show_notion = True
+        for key, value in self._args.items():
+            if key not in self._used_keys:
+                if show_notion:
+                    self.utils_print(f'未使用のパラメータ一覧//List of unused parameters')
+                    show_notion = False
+                print(f'{key}: {repr(value)}')
+        if not show_notion:
+            self.utils_print(f'スペルミスがないか確認してください//Check if typos exist.')
+
+    def raise_unset_key(self, key, desc_ja=None, desc_en=None):
+        desc_ja = f' ({desc_ja})' if desc_ja else ''
+        desc_en = f' ({desc_en})' if desc_en else ''
+        self.utils_print(f'{key}{desc_ja}を設定してください//Please set {key}{desc_en}')
+        sys.exit(1)
+
+    def utils_print(self, *args, **kwargs):
+        print("🐥", *args, **kwargs)
+
+    def verbose_print(self, *args, **kwargs):
+        print("🐓", *args, **kwargs)
+
 
 def adhoc_argument_parser(default_args:dict=None, use_environ=True, load_config=None):
     argv = sys.argv[1:]

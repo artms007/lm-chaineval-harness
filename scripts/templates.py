@@ -225,11 +225,43 @@ class TemplateProcessor:
 
 
 
+class TemplateProcessor:
+    def __init__(self, prompt: str, reference: str):
+        self.prompt = prompt or ''
+        self.reference = reference or ''
+
+    def create_prompt(self, data):
+        """Creates a prompt using the loaded template and provided data."""
+        try:
+            prompt = self.prompt.format(**data)
+            return prompt
+        except KeyError as e:
+            raise KeyError(f"Missing key in dataset for template: {e}")
+        except IndexError as e:
+            raise IndexError(f"Index error in template formatting: {e}")
+    
+    def create_reference(self, data):
+        """Creates a reference using the loaded template and provided data."""
+        try:
+            reference = self.reference.format(**data)
+            return reference
+        except KeyError as e:
+            raise KeyError(f"Missing key in dataset for reference: {e}")
+        except IndexError as e:
+            raise IndexError(f"Index error in reference formatting: {e}")
+
+
 # =====================
 # Utility Function
 # =====================
 
-def load_template(template_path):
-    template = TemplateProcessor(template_path)
-    return template
+def load_template(args: dict):
+    template_path = args['template_path']
+    if template_path:
+        if template_path.endswith('.json'):
+            with open(template_path, 'r', encoding='utf-8') as file:
+                template_data = json.load(file)
+        else:
+            raise ValueError("Unsupported template format. Please provide a .json file.")
+    return TemplateProcessor(template_data)
     

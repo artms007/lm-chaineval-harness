@@ -7,30 +7,69 @@ os.environ["HF_ALLOW_CODE_EVAL"] = "1"
 # Base Class
 # =====================
 
-class Evaluator:
+class Evaluator(object):
     """
     Base class for evaluators that use a model to obtain answers for generated prompts,
     evaluate them based on specified metrics, and calculate scores.
     """
 
-    def __init__(self, metric_path, metric_args):
-        if metric_path != "test":
-            self.metric = load(metric_path)
-        self.metric_args = metric_args
-        self.item_scores = []
+    def __init__(self, metric_id:str, eval_path:str, args:dict):
+        self.metric_id = metric_id
+        self.eval = None if eval_path is None else load(eval_path) 
+        self.args = args
+
+    def __repr__(self):
+        return self.metric_id
+
+    def score_item(self, item):
+        item[self.metric_id] = 0.0
+
+    def score(self, records):
+        scores = []
+        for item in records:
+            if self.metric_id not in item:
+                self.score_item(item)
+            scores.append(item[self.metric_id])
+        if scores:
+            total_score = sum(scores) / len(scores)
+        else:
+            total_score = 0.0
+        return {self.metric_id: total_score}
+
+
+class CodeEvalEvaluator(Evaluator):
+    """
+    コード評価用Evaluatorクラス。HuggingFaceのevaluate-metric/code_evalを使用してスコアを算出する。
+    """
+
+    def is_blank(self, candidates):
+        """
+        何をやっているのか？
+        """
+        if isinstance(candidates, list):
+            for sublist in candidates:
+                if not isinstance(sublist, list) or not all(isinstance(item, str) and item.strip() == '' for item in sublist):
+                    return False
+            return True
+        return False
+
+    def score_item(self, data):
+        test_cases = [data['reference']]
+        candidates = [data['formatted_output']]
+        if not self.is_blank(candidates):
+            pass_at_k, results = self.eval.compute(references=test_cases, predictions=candidates, k=[1])
+            data['code_eval'] = results
+            data[self.metric_id] = pass_at_k['pass@1']
+        else:
+            data[self.metric_id] = 0.0
+
+class ExactMatchEvaluator(Evaluator):
+
+    def score_item(self, data):
+        predictions = data['model_output']
+        references = data['reference']
+        data['exact_match'] = self.metric.compute(predictions=predictions, references=references)['exact_match']
     
-    def item_calculate(self, data, record, output_lang):
-        """
-        Calculate the score for a single item in the dataset.
-        """
-        raise NotImplementedError("Must implement item_calculate in subclass")
-
-    def total_calculate(self, dataset, record, output_lang):
-        """
-        Aggregate the scores of all items and calculate the total score.
-        """
-        raise NotImplementedError("Must implement total_calculate in subclass")
-
 
 # =====================
 # Testing Code
@@ -63,49 +102,9 @@ class TestEvaluator(Evaluator):
         return total_score
 
 
-
-
 # =====================
 # Evaluation Evaluator
 # =====================
-
-class CodeEvalEvaluator(Evaluator):
-    """
-    コード評価用Evaluatorクラス。HuggingFaceのevaluate-metric/code_evalを使用してスコアを算出する。
-    """
-    def is_blank(self, candidates):
-        if isinstance(candidates, list):
-            for sublist in candidates:
-                if not isinstance(sublist, list) or not all(isinstance(item, str) and item.strip() == '' for item in sublist):
-                    return False
-            return True
-        return False
-
-    def item_calculate(self, data, record, output_lang):
-        test_cases = [data['reference']]
-        candidates = [data['formatted_output']]
-        if not self.is_blank(candidates):
-            pass_at_k, results = self.metric.compute(references=test_cases, predictions=candidates, k=[1])
-            item_score = pass_at_k['pass@1']
-        else:
-            item_score = 0.00
-        # self.item_scores.append(item_score)
-        return item_score
-    
-    def total_calculate(self, all_data, record, output_lang):
-        existing_scores = [data['item_score'] for data in all_data if 'item_score' in data]
-        if existing_scores:
-            total_score = sum(existing_scores) / len(existing_scores)
-        else:
-            total_score = 0.00
-        return total_score
-    # def total_calculate(self, dataset, record, output_lang):
-    #     if self.item_scores:
-    #         total_score = sum(self.item_scores) / len(self.item_scores) 
-    #     else:
-    #         total_score = 0.00
-    #     return total_score
-
 
 class AccuracyEvaluator(Evaluator):
     # 正確性評価用のEvaluatorクラスの実装は省略
@@ -226,58 +225,39 @@ class F1Evaluator(Evaluator):
         total_score = self.metric.compute(predictions=predictions, references=references)["f1"]
         return total_score
 
+#######################
 
-class EMEvaluator(Evaluator):
-    def item_calculate(self, data, record, output_lang):
-        predictions = data['model_output']
-        references = data['reference']
-        item_score = self.metric.compute(predictions=predictions, references=references)['exact_match']
-        self.item_scores.append(item_score)
-
-        return item_score
-    
-    def total_calculate(self, dataset, record, output_lang):
-        if self.item_scores:
-            total_score = sum(self.item_scores) / len(self.item_scores)
-        else:
-            total_score = 0.00
-        return total_score
-
-
-# =====================
-# Evaluator Loader Factory
-# =====================
-
-class EvaluatorLoaderFactory:
-    """
-    Evaluatorのインスタンスを生成するためのファクトリクラス。
-    metric_pathに応じて適切なEvaluatorクラスをロードする。
-    """
-    @staticmethod
-    def create(metric_path, metric_args):
-        if metric_path == "test":
-            return TestEvaluator(metric_path, metric_args)
-        elif metric_path == "code_eval":
-            return CodeEvalEvaluator(metric_path, metric_args)
-        elif metric_path == "accuracy":
-            return AccuracyEvaluator(metric_path, metric_args)
-        elif metric_path == "bleu":
-            return BLEUEvaluator(metric_path, metric_args)
-        elif metric_path == "f1":
-            return F1Evaluator(metric_path, metric_args)
-        elif metric_path == "exact_match":
-            return EMEvaluator(metric_path, metric_args)
-        else:
-            raise ValueError(f"Unknown metric path: {metric_path}")
-
-
-
-# =====================
-# Utility Function
-# =====================
-
-def load_evaluator(metric_path, metric_args):
-    if metric_path:
-        return EvaluatorLoaderFactory.create(metric_path, metric_args)
+def load_evaluator(metric_id, args):
+    if metric_id == "pass@1":
+        return CodeEvalEvaluator("code_eval", "pass@1", args)
+    elif metric_id == "exact_match":
+        return ExactMatchEvaluator("exact_match", "exact_match", args)
     else:
-        return False
+        print(f"Unknown metric path: {metric_id}")
+
+class ComposeEvaluator(Evaluator):
+    def __init__(self):
+        self.evals = []
+
+    def __repr__(self):
+        return ','.join(repr(x) for x in self.evals)
+
+    def append(self, eval):
+        self.evals.append(eval)
+    
+    def score(self, records):
+        results = {}
+        for eval in self.metrics:
+            results.update(eval.score(records))
+        return results
+
+def compose_evaluator(args):
+    metrics = args['metrics']
+    if metrics is None:
+        return None
+    composed = ComposeEvaluator()
+    for metric_id in metrics:
+        eval = load_evaluator(metric_id, args)
+        if eval:
+            composed.append(eval)
+    return composed
