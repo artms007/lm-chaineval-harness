@@ -58,13 +58,20 @@ def main():
 
     model = load_model(args)
     if model:
+        test_run = args['test_run|=false']
         if result_path is None:
             model_id = (f'{model}').replace('/', '_')
             result_path = f'{dataset_id}_{model_id}.jsonl'
             args.verbose_print(f'保存先//Saving.. {result_path}')
         
         n = args['num_return_sequences|n|N|=1']
-        args.verbose_print(f"テキスト生成//Text-generation: {model} n={n}")
+        args.verbose_print(f"モデル評価//Text-generation: {model} n={n}")
+
+        if test_run:
+            args.verbose_print('テスト実行のため先頭5件のみ実行します')
+            result_path = result_path.replace('.json', '_test_run.json')
+            records = records[:5]
+        
         for i, record in enumerate(tqdm(records, desc=f'Inferencing {model}')):
             source = dataset[i]
             if 'model_input' not in record:
@@ -81,13 +88,18 @@ def main():
 
     evaluators = compose_evaluators(args)
     if len(evaluators) > 0 and result_path:
-        args.verbose_print(f"Metrics: {evaluators}")
+        args.verbose_print(f"評価尺度//Metrics: {evaluators}")
         results = {}
         for eval in evaluators:
             results.update(eval.score(records))
             save_records(result_path, records)
-        print(f"Scores: {results}")
-    save_records(result_path, records, args)
+        print(f"スコア//Scores: {results}")
+        args.update({'score': results})
+
+    if result_path:
+        save_records(result_path, records, args)
+    
+    args.utils_check()
 
 if __name__ == '__main__':
     main()

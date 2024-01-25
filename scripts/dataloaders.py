@@ -27,6 +27,8 @@ def load_jsonl(dataset_path:str, args):
 
 def load_hfdataset(dataset_path:str, args):
     subargs = args.subset(prefix='dataset_')
+    if 'split' not in subargs:
+        subargs['split'] = args['split|=test']
     dataset = load_dataset(dataset_path, **subargs)
     args.verbose_print(dataset_path, dataset)
     dataset = [{k: v for k, v in item.items()} for item in dataset]

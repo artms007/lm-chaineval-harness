@@ -1,6 +1,7 @@
 from evaluate import load
 import os
 import re
+from tqdm import tqdm
 os.environ["HF_ALLOW_CODE_EVAL"] = "1"
 
 # =====================
@@ -27,16 +28,20 @@ class Evaluator(object):
         item[self.metric_id] = 0.0
 
     def score(self, records):
-        scores = []
-        for record in records:
+        #scores = []
+        score=0.0
+        n = 0
+        for record in tqdm(records, desc=f'Scoring {self.metric_id}={(score/max(n,1)):.3f}'):
             if self.metric_id not in record:
                 self.score_item(record)
-            scores.append(record[self.metric_id])
-        if scores:
-            total_score = sum(scores) / len(scores)
-        else:
-            total_score = 0.0
-        return {self.metric_id: total_score}
+            score += record[self.metric_id]
+            n+=1
+        #     scores.append(record[self.metric_id])
+        # if scores:
+        #     total_score = sum(scores) / len(scores)
+        # else:
+        #     total_score = 0.0
+        return {self.metric_id: score}
 
 # HumanEval pass@1
 #
@@ -59,7 +64,6 @@ class CodeEvalEvaluator(Evaluator):
     """
 
     def score_item(self, record):
-        print('@', record)
         test_cases = [record['reference']]
         extracted_code = [humaneval_extract(record['model_input'], x) for x in record['extracted_results']]
         record['generated_code'] = extracted_code
