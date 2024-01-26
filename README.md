@@ -17,13 +17,20 @@ cd lm-chaineval-harness
 pip3 install -r requirements.txt
 ```
 
-### 環境変数
+### API キー
 
-評価に使用するモデルで、HuggingFace のアクセストークンや、OpenAI のAPI キーが必要な場合には、`.env` ファイルに記載して保存してください。
+評価に使用するモデルで、API キーが必要な場合は`.env` ファイルに記載して保存、もしくは環境変数に設定してください。
+
+以下のAPIをサポートしています。
+- Hugging Face のアクセストークン
+- OpenAI API
+- Amazon Bedrock API（boto3）
 
 ```plaintext:envファイル
-OPENAI_API_KEY=YOUR_OPENAI_API_KEY
-HF_TOKEN=HF_TOKEN
+OPENAI_API_KEY
+HF_TOKEN
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
 ```
 
 ## 評価方法
@@ -31,26 +38,27 @@ HF_TOKEN=HF_TOKEN
 1. [`templates`](https://github.com/KuramitsuLab/lm-chaineval-harness/tree/main/templates) からテンプレートファイルを選ぶ、もしくは作成する
 2. 任意のパス名に変更後、`chain.sh` として保存する
     ```sh
-    MODEL_PATH="MODEL_PATH"
-    DATASET_PATH="DATASET_PATH"
-    TEMPLATE_PATH="TEMPLATE_PATH"
-    METRIC_PATH="METRIC_PATH"
-
     python3 ./scripts/main.py \
-        --model_path $MODEL_PATH \
-        --dataset_path $DATASET_PATH \
-        --template_path $TEMPLATE_PATH \
-        --metric_path $METRIC_PATH \
-        --result_path result.jsonl \
+        --model_path <MODEL_PATH> \
+        --dataset <DATASET_PATH> \
+        --template <TEMPLATE_PATH> \
+        --metrics <METRIC_PATH> \
+        --result_path <RESULT_PATH>
     ```
     
-    - `MODEL_PATH` : 評価したいモデルのパス名を指定
-    - `DATASET_PATH` : HuggingFace Hub 上で提供されているデータセットのパス名を指定
+    - `model_path` : 評価したいモデルのパス名を指定
+        - OpenAI モデルは先頭に `openai:` を付けて指定（e.g., `openai:gpt-4`）
+        - Amazon Bedrock 経由モデルは先頭に `bedrock:` を付けて指定（e.g., `bedrock:anthropic.claude-v2:1`）
+    - `dataset` : HuggingFace Hub 上で提供されているデータセットのパス名を指定
+        - e.g., `openai_humaneval`, `kogi-jwu/jhumaneval`
         - 個人がローカルに所有するjsonl 形式のデータを指定することも可能
-    - `TEMPLATE_PATH` : [`templates`](https://github.com/KuramitsuLab/lm-chaineval-harness/tree/main/templates) から選んだテンプレートのパス名を指定
+    - `template` : [`templates`](https://github.com/KuramitsuLab/lm-chaineval-harness/tree/main/templates) から選んだテンプレートのパス名を指定
         - 個人で新たに作成したテンプレートのパス名の指定も可能
-    - `METRIC_PATH` : 評価指標のパス名を指定
-        - [HuggingFaceのevaluate-metric](https://huggingface.co/evaluate-metric)で提供されているパス名で指定する (e.g., pass@k: `code_eval`)
+    - `metrics` : 評価指標のパス名を指定
+        - [HuggingFaceのevaluate-metric](https://huggingface.co/evaluate-metric)で提供されている評価指標を使っています
+        - 現在のサポート：`pass@1`
+    - `result_path` : 結果を格納するファイル名を指定
+        - 指定なしでも自動で結果のファイルを作成してくれます
 
 
 3. 評価を実行する
@@ -69,26 +77,32 @@ HF_TOKEN=HF_TOKEN
     # 評価したいタスク
     python3 ./scripts/main.py \
         --model_path <MODEL_PATH> \
-        --dataset_path <DATASET_PATH> \
-        --template_path <TEMPLATE_1_PATH> \
-        --result_path <RESULT_1_PATH> \
+        --dataset <DATASET_PATH> \
+        --template <TEMPLATE_PATH_1> \
+        --result_path <RESULT_PATH_1>
     
     # BackCodeEval
     python3 ./scripts/main.py \
         --model_path <MODEL_PATH> \
-        --dataset_path <RESULT_1_PATH> \
-        --template_path <TEMPLATE_2_PATH> \
-        --metric_path <METRIC_PATH> \
-        --result_path result_all.jsonl \
+        --dataset <RESULT_PATH_1> \
+        --template <TEMPLATE_PATH_2> \
+        --metrics <METRIC_PATH> \
+        --result_path <RESULT_PATH_2>
     ```
     
-    - `MODEL_PATH` : 評価したいモデルのパス名を指定
-    - `DATASET_PATH` : HuggingFace Hub 上で提供されているデータセットのパス名を指定
+    - `model_path` : 評価したいモデルのパス名を指定
+        - OpenAI モデルは先頭に `openai:` を付けて指定（e.g., `openai:gpt-4`）
+        - Amazon Bedrock 経由モデルは先頭に `bedrock:` を付けて指定（e.g., `bedrock:anthropic.claude-v2:1`）
+    - `dataset` : HuggingFace Hub 上で提供されているデータセットのパス名を指定
+        - e.g., `openai_humaneval`, `kogi-jwu/jhumaneval`
         - 個人がローカルに所有するjsonl 形式のデータを指定することも可能
-    - `TEMPLATE_1_PATH`, `TEMPLATE_2_PATH` : [`templates`](https://github.com/KuramitsuLab/lm-chaineval-harness/tree/main/templates) から選んだテンプレートのパス名を指定
+    - `template` : [`templates`](https://github.com/KuramitsuLab/lm-chaineval-harness/tree/main/templates) から選んだテンプレートのパス名を指定
         - 個人で新たに作成したテンプレートのパス名の指定も可能
-    - `METRIC_PATH` : 評価指標のパス名を指定
-        - [HuggingFaceのevaluate-metric](https://huggingface.co/evaluate-metric)で提供されているパス名で指定する (e.g., pass@k: `code_eval`)
+    - `metrics` : 評価指標のパス名を指定
+        - [HuggingFaceのevaluate-metric](https://huggingface.co/evaluate-metric)で提供されている評価指標を使っています
+        - 現在のサポート：`pass@1`
+    - `result_path` : 結果を格納するファイル名を指定
+        - 指定なしでも自動で結果のファイルを作成してくれます
 
 
 3. 評価を実行する
@@ -96,103 +110,74 @@ HF_TOKEN=HF_TOKEN
     sh chain.sh
     ```
 
-## アクセストークンやAPI が必要なモデルの評価
-
-### HuggingFace アクセストークンの場合：
-
-```sh
-MODEL_PATH="MODEL_PATH"
-DATASET_PATH="DATASET_PATH"
-TEMPLATE_PATH="TEMPLATE_PATH"
-METRIC_PATH="METRIC_PATH"
-
-source ./.env
-
-python3 ./scripts/main.py \
-    --model_path $MODEL_PATH \
-    --hf_token $HF_TOKEN \
-    --dataset_path $DATASET_PATH \
-    --template_path $TEMPLATE_PATH \
-    --metric_path $METRIC_PATH \
-    --result_path result.jsonl \
-```
-
-### OpenAI APIキーの場合：
-
-```sh
-MODEL_PATH="MODEL_PATH"
-DATASET_PATH="DATASET_PATH"
-TEMPLATE_PATH="TEMPLATE_PATH"
-METRIC_PATH="METRIC_PATH"
-
-source ./.env
-
-python3 ./scripts/main.py \
-    --model_path $MODEL_PATH \
-    --openai_api_key $OPENAI_API_KEY \
-    --dataset_path $DATASET_PATH \
-    --template_path $TEMPLATE_PATH \
-    --metric_path $METRIC_PATH \
-    --result_path result.jsonl \
-```
-
 ## その他のオプション
+
+### アクセストークンやAPI が必要なモデルの評価
+
+モデルに合わせて必要なパラメータを追加してください。
+
+```sh
+# Hugging Face
+--hf_token $HF_TOKEN
+
+# OpenAI
+--openai_api_key $OPENAI_API_KEY
+
+# Amazon Bedrock
+--aws_access_key_id $AWS_ACCESS_KEY_ID
+--aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+```
 
 ### モデルのパラメータ設定
 
 HuggingFace のPipeline で使用できるパラメータを個別で設定可能です。  
-`model_args` として与えてください。
 
 ```sh
-MODEL_PATH="MODEL_PATH"
-DATASET_PATH="DATASET_PATH"
-TEMPLATE_PATH="TEMPLATE_PATH"
-METRIC_PATH="METRIC_PATH"
-
 python3 ./scripts/main.py \
-    --model_path $MODEL_PATH \
-    --model_args '{"temperature": 0.1, "top_p": 0.90, "max_new_tokens": 512}' \
-    --dataset_path $DATASET_PATH \
-    --template_path $TEMPLATE_PATH \
-    --metric_path $METRIC_PATH \
-    --result_path result.jsonl \
+    --model_path <MODEL_PATH> \
+    --max_new_tokens 512 \
+    --temperature 0.1 \
+    --top_p 0.90 \
+    --dataset <DATASET_PATH> \
+    --template <TEMPLATE_PATH> \
+    --metrics <METRIC_PATH> \
+    --result_path <RESULT_PATH>
 ```
 
 ### 量子化の有効化
 
 [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) を使用した4bitでの量子化を指定することができます。  
-量子化を行う際には、コマンドライン引数として `quantize_model` を追加してください。
+量子化を行う際には、コマンドライン引数として `use_4bit` を追加してください。
 
 ```sh
-MODEL_PATH="MODEL_PATH"
-DATASET_PATH="DATASET_PATH"
-TEMPLATE_PATH="TEMPLATE_PATH"
-METRIC_PATH="METRIC_PATH"
-
 python3 ./scripts/main.py \
-    --model_path $MODEL_PATH \
-    --dataset_path $DATASET_PATH \
-    --template_path $TEMPLATE_PATH \
-    --metric_path $METRIC_PATH \
-    --result_path result.jsonl \
-    --quantize_model
+    --model_path <MODEL_PATH> \
+    --dataset <DATASET_PATH> \
+    --template <TEMPLATE_PATH> \
+    --metrics <METRIC_PATH> \
+    --result_path <RESULT_PATH> \
+    --use_4bit
 ```
 
-### デバッグモード
+### テスト実行
 
-`debug_mode` を追加するとデバッグモードになります。
+`test_run` を追加すると、データセットの先頭5件だけを実行します。
 
 ```sh
-MODEL_PATH="MODEL_PATH"
-DATASET_PATH="DATASET_PATH"
-TEMPLATE_PATH="TEMPLATE_PATH"
-METRIC_PATH="METRIC_PATH"
-
 python3 ./scripts/main.py \
-    --model_path $MODEL_PATH \
-    --dataset_path $DATASET_PATH \
-    --template_path $TEMPLATE_PATH \
-    --metric_path $METRIC_PATH \
-    --result_path result.jsonl \
-    --debug_mode
+    --model_path <MODEL_PATH> \
+    --dataset <DATASET_PATH> \
+    --template <TEMPLATE_PATH> \
+    --metrics <METRIC_PATH> \
+    --result_path <RESULT_PATH> \
+    --test_run
+```
+
+ツールが動作するかを確認するには以下のような実行が有効です。
+
+```sh
+python3 ./scripts/main.py \
+    --dataset openai_humaneval \
+    --metrics pass@1 \
+    --test_run
 ```
