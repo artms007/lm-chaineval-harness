@@ -1,138 +1,112 @@
 from evaluate import load
 import os
 import re
+from tqdm import tqdm
 os.environ["HF_ALLOW_CODE_EVAL"] = "1"
 
 # =====================
 # Base Class
 # =====================
 
-class Evaluator:
+#--metrics=pass@1,pass@k  --k=1
+
+class Evaluator(object):
     """
     Base class for evaluators that use a model to obtain answers for generated prompts,
     evaluate them based on specified metrics, and calculate scores.
     """
 
-    def __init__(self, metric_path, metric_args):
-        if metric_path != "test":
-            self.metric = load(metric_path)
-        self.metric_args = metric_args
-        self.item_scores = []
-    
-    def item_calculate(self, data, record, output_lang):
-        """
-        Calculate the score for a single item in the dataset.
-        """
-        raise NotImplementedError("Must implement item_calculate in subclass")
+    def __init__(self, metric_id:str, args:dict, load_path:str = None):
+        self.metric_id = metric_id # pass@1 pass@2
+        self.eval = None if load_path is None else load(load_path)  # code_eval
+        self.args = args
 
-    def total_calculate(self, dataset, record, output_lang):
-        """
-        Aggregate the scores of all items and calculate the total score.
-        """
-        raise NotImplementedError("Must implement total_calculate in subclass")
+    def __repr__(self):
+        return self.metric_id
 
+    def score_item(self, item):
+        item[self.metric_id] = 0.0
 
-# =====================
-# Testing Code
-# =====================
+    def score(self, records):
+        score=0.0
+        n = 0
+        if self.eval:
+            self.args.verbose_print(f'[{self.metric_id}] {self.eval.description}')
+        for record in tqdm(records, desc=f'{self.metric_id}={(score/max(n,1)):.3f}'):
+            if self.metric_id not in record:
+                self.score_item(record)
+            score += record[self.metric_id]
+            n+=1
+        return {self.metric_id: score}
 
-class TestEvaluator(Evaluator):
-    """
-    テスト用Evaluatorクラス。単に文字列の長さでスコアを算出する。
-    """
+# HumanEval pass@1
+#
 
-    # def calculate(self, dataset, record):
-    #     # データセット内のすべてのoutputの長さの平均を計算してスコアとする
-    #     total_length = sum(len(data['formatted_output']) for data in dataset)
-    #     result_score = total_length / len(dataset) if dataset else 0
-    #     for data in dataset:
-    #         data['test_result_score'] = result_score
-    #     return result_score, dataset
+def humaneval_extract(prompt, generated_text):
+    # if generated_text == '':
+    #     return 'Empty Code!!'
+    stop_sequences=["\nclass", "\ndef", "\n#", "\n@", "\nprint", "\nif", "\n```"]
+    min_stop_index = len(generated_text)
+    for seq in stop_sequences:
+        stop_index = generated_text.find(seq)
+        if stop_index != -1 and stop_index < min_stop_index:
+            min_stop_index = stop_index
+    return prompt + "\n" + generated_text[:min_stop_index]
 
-    def item_calculate(self, data, record, output_lang):
-        # 個々のoutputの長さをスコアとする
-        item_score = len(data['formatted_output'])
-        self.item_scores.append(item_score)
-        return item_score
-    
-    def total_calculate(self, dataset, record, output_lang):
-        if self.item_scores:
-            total_score = sum(self.item_scores) / len(self.item_scores)
-        else:
-            total_score = 0
-        return total_score
-
-
-
-
-# =====================
-# Evaluation Evaluator
-# =====================
 
 class CodeEvalEvaluator(Evaluator):
     """
     コード評価用Evaluatorクラス。HuggingFaceのevaluate-metric/code_evalを使用してスコアを算出する。
     """
-    def is_blank(self, candidates):
-        if isinstance(candidates, list):
-            for sublist in candidates:
-                if not isinstance(sublist, list) or not all(isinstance(item, str) and item.strip() == '' for item in sublist):
-                    return False
-            return True
-        return False
 
-    def item_calculate(self, data, record, output_lang):
-        test_cases = [data['reference']]
-        candidates = [data['formatted_output']]
-        if not self.is_blank(candidates):
-            pass_at_k, results = self.metric.compute(references=test_cases, predictions=candidates, k=[1])
-            item_score = pass_at_k['pass@1']
-        else:
-            item_score = 0.00
-        # self.item_scores.append(item_score)
-        return item_score
+    def score_item(self, record):
+        test_cases = [record['reference']]
+        extracted_code = [humaneval_extract(record['model_input'], x) for x in record['extracted_results']]
+        record['generated_code'] = extracted_code
+        candidates = [extracted_code]
+        pass_at_k, results = self.eval.compute(references=test_cases, predictions=candidates, k=[1])
+        record['code_eval_results'] = results
+        record[self.metric_id] = pass_at_k['pass@1']
+
+class ExactMatchEvaluator(Evaluator):
+
+    def score_item(self, data):
+        predictions = [data['model_output']]
+        references = [data['reference']]
+        data['exact_match'] = self.eval.compute(predictions=predictions, references=references)['exact_match']
     
-    def total_calculate(self, all_data, record, output_lang):
-        existing_scores = [data['item_score'] for data in all_data if 'item_score' in data]
-        if existing_scores:
-            total_score = sum(existing_scores) / len(existing_scores)
-        else:
-            total_score = 0.00
-        return total_score
-    # def total_calculate(self, dataset, record, output_lang):
-    #     if self.item_scores:
-    #         total_score = sum(self.item_scores) / len(self.item_scores) 
-    #     else:
-    #         total_score = 0.00
-    #     return total_score
 
-
-class AccuracyEvaluator(Evaluator):
-    # 正確性評価用のEvaluatorクラスの実装は省略
-
-
-    # def calculate(self, dataset, record):
-        
-    #     # 正解データと予測データのリストを準備
-    #     references = [d['reference'] for d in dataset]
-    #     candidates = [d['model_output'] for d in dataset]
-    #     # accuracy スコアを計算
-    #     score = self.metric.compute(predictions=candidates, references=references)['accuracy']
-
-    #     for data in dataset:
-    #         data['accuracy_score'] = score
-
-    #     return score, dataset
-
-    def item_calculate(self, data, record, output_lang):
-        return None
+# 日本語用のtokenizer
+# Python: 正規表現による簡易版形態素解析
+# https://qiita.com/kinoshita_yuri/items/e15f143981f1616994ed
     
-    def total_calculate(self, dataset, record, output_lang):
-        predictions = [int(data['model_output']) for data in dataset]
-        references = [int(data['reference']) for data in dataset]
-        total_score = self.metric.compute(predictions=predictions, references=references)['accuracy']
-        return total_score
-
+def tokenize_japaneses(text):
+    pJA = re.compile(r"/|[A-Z]+|[a-z]+|[ァ-ンー]+|[ぁ-ん-]+|[ァ-ヶ]+|[一-龍]+|[。、]|/")
+    text_m = []
+    m = pJA.findall(text)
+    for row in m:
+        if re.compile(r'^[あ-ん]+$').fullmatch(row):
+            if row[0] in 'はがのにへともでを':
+                prefix = row[0]
+                token = row[1:]
+                text_m.append(prefix)
+                if (len(token) > 0):
+                    text_m.append(token)
+            elif row[-2:] in 'のでからまで':
+                token = row[0:-2]
+                suffix = row[-2:]
+                text_m.append(token)
+                text_m.append(suffix)
+            elif row[-1:] in 'もはがでを':
+                token = row[0:-1]
+                suffix = row[-1:]
+                text_m.append(token)
+                text_m.append(suffix)
+            else:
+                text_m.append(row)
+        else:
+            text_m.append(row)
+    return text_m
 
 class BLEUEvaluator(Evaluator):
     # def calculate(self, dataset, record):
@@ -148,58 +122,16 @@ class BLEUEvaluator(Evaluator):
 
     #     return score, dataset
 
-    # 日本語用のtokenizer
-    # Python: 正規表現による簡易版形態素解析
-    # https://qiita.com/kinoshita_yuri/items/e15f143981f1616994ed
-    def tokenize_ja(text):
-        pJA = re.compile(r"/|[A-Z]+|[a-z]+|[ァ-ンー]+|[ぁ-ん-]+|[ァ-ヶ]+|[一-龍]+|[。、]|/")
-        text_m = []
-        m = pJA.findall(text)
-        for row in m:
-            if re.compile(r'^[あ-ん]+$').fullmatch(row):
-                if row[0] in 'はがのにへともでを':
-                    prefix = row[0]
-                    token = row[1:]
-                    text_m.append(prefix)
-                    if (len(token) > 0):
-                        text_m.append(token)
-                elif row[-2:] in 'のでからまで':
-                    token = row[0:-2]
-                    suffix = row[-2:]
-                    text_m.append(token)
-                    text_m.append(suffix)
-                elif row[-1:] in 'もはがでを':
-                    token = row[0:-1]
-                    suffix = row[-1:]
-                    text_m.append(token)
-                    text_m.append(suffix)
-                else:
-                    text_m.append(row)
-            else:
-                text_m.append(row)
-        return text_m
     
-    def item_calculate(self, data, record, output_lang):
-        predictions = [data['formatted_output']]
+    def score_item(self, data):
+        predictions = [data['extracted_result']]
         references = [[data['reference']]]
         if output_lang == 'ja':
             item_score = self.metric.compute(predictions=predictions, references=references, tokenier=tokenize_ja, smooth=True)['bleu']
         else:
             item_score = self.metric.compute(predictions=predictions, references=references, smooth=True)['bleu']
         self.item_scores.append(item_score)
-        
-        return item_score
-
-    def total_calculate(self, dataset, record, output_lang):
-        predictions = [data['formatted_output'] for data in dataset]
-        references = [[data['reference']] for data in dataset]
-        if output_lang == 'ja':
-            total_score = self.metric.compute(predictions=predictions, references=references, tokenier=tokenize_ja, smooth=True)['bleu']
-        else:
-            total_score = self.metric.compute(predictions=predictions, references=references, smooth=True)['bleu']
-
-        return total_score
-        
+        return item_score        
 
 class F1Evaluator(Evaluator):
     # def calculate(self, dataset, record):
@@ -226,58 +158,25 @@ class F1Evaluator(Evaluator):
         total_score = self.metric.compute(predictions=predictions, references=references)["f1"]
         return total_score
 
+#######################
 
-class EMEvaluator(Evaluator):
-    def item_calculate(self, data, record, output_lang):
-        predictions = data['model_output']
-        references = data['reference']
-        item_score = self.metric.compute(predictions=predictions, references=references)['exact_match']
-        self.item_scores.append(item_score)
-
-        return item_score
-    
-    def total_calculate(self, dataset, record, output_lang):
-        if self.item_scores:
-            total_score = sum(self.item_scores) / len(self.item_scores)
-        else:
-            total_score = 0.00
-        return total_score
-
-
-# =====================
-# Evaluator Loader Factory
-# =====================
-
-class EvaluatorLoaderFactory:
-    """
-    Evaluatorのインスタンスを生成するためのファクトリクラス。
-    metric_pathに応じて適切なEvaluatorクラスをロードする。
-    """
-    @staticmethod
-    def create(metric_path, metric_args):
-        if metric_path == "test":
-            return TestEvaluator(metric_path, metric_args)
-        elif metric_path == "code_eval":
-            return CodeEvalEvaluator(metric_path, metric_args)
-        elif metric_path == "accuracy":
-            return AccuracyEvaluator(metric_path, metric_args)
-        elif metric_path == "bleu":
-            return BLEUEvaluator(metric_path, metric_args)
-        elif metric_path == "f1":
-            return F1Evaluator(metric_path, metric_args)
-        elif metric_path == "exact_match":
-            return EMEvaluator(metric_path, metric_args)
-        else:
-            raise ValueError(f"Unknown metric path: {metric_path}")
-
-
-
-# =====================
-# Utility Function
-# =====================
-
-def load_evaluator(metric_path, metric_args):
-    if metric_path:
-        return EvaluatorLoaderFactory.create(metric_path, metric_args)
+def load_evaluator(metric_id, args):
+    if metric_id == "pass@1":
+        return CodeEvalEvaluator("pass@1", args, load_path='code_eval')
+    elif metric_id == "pass@k":
+        k = args['pass_at_k|k|=1']
+        return CodeEvalEvaluator(f"pass@{k}", args, load_path='code_eval')
+    elif metric_id == "exact_match":
+        return ExactMatchEvaluator("exact_match", args, load_path='exact_match')
     else:
-        return False
+        print(f"未定義の評価尺度//Unknown metrics: {metric_id}")
+    
+def compose_evaluators(args):
+    metrics = args['metrics']
+    evaluators = []
+    if metrics is not None:
+        for metric_id in metrics.split(','):
+            eval = load_evaluator(metric_id.strip(), args)
+            if eval:
+                evaluators.append(eval)
+    return evaluators

@@ -1,6 +1,6 @@
+from typing import List
 import json
 import re
-import ast
 import textwrap
 
 class TemplateProcessor:
@@ -194,42 +194,85 @@ class TemplateProcessor:
             extracted_text = model_output
         return extracted_text
 
+class TemplateProcessor:
+    def __init__(self, args):
+        self.prompt = args['prompt|=']
+        self.reference = args['reference|=']
+        self.begin = args['extract_begin']
+        self.end = args['extract_end']
 
-    ## humanevalの整形処理
-    # def format_humaneval(self, prompt, model_output):
-    #     """Collates the model output for the humaneval format."""
-    #     # if not model_output.startswith("    "):
-    #     #     model_output = "    " + model_output
-    #     combined_output = prompt + "\n" + model_output + "\n"
-    #     return self.extract_functions(combined_output)
-    def format_humaneval(self, prompt, model_output):
-        """Collates the model output for the humaneval format."""
-        model_output = model_output.strip('<outpuT>')
-        stop_sequences=["\nclass", "\ndef", "\n#", "\n@", "\nprint", "\nif", "\n```"]
-        min_stop_index = len(model_output)
-        for seq in stop_sequences:
-            stop_index = model_output.find(seq)
-            if stop_index != -1 and stop_index < min_stop_index:
-                min_stop_index = stop_index
-        return prompt + "\n" + model_output[:min_stop_index]
+    def create_prompt(self, data):
+        """Creates a prompt using the loaded template and provided data."""
+        try:
+            prompt = self.prompt.format(**data)
+            return prompt
+        except KeyError as e:
+            raise KeyError(f"Missing key in dataset for template: {e}")
+        except IndexError as e:
+            raise IndexError(f"Index error in template formatting: {e}")
+    
+    def create_reference(self, data):
+        """Creates a reference using the loaded template and provided data."""
+        try:
+            reference = self.reference.format(**data)
+            return reference
+        except KeyError as e:
+            raise KeyError(f"Missing key in dataset for reference: {e}")
+        except IndexError as e:
+            raise IndexError(f"Index error in reference formatting: {e}")
 
+    def extract(self, text:str) -> str:
+        if isinstance(text, list):
+            return [self.extract(t) for t in text]
+        if self.begin or self.end:
+            lines = text.splitlines()
+            extracted = []
+            inclusion = False if self.begin else True
+            for line in lines:
+                if self.end and line.startswith(self.end):
+                    break
+                if self.begin and line.startswith(self.begin):
+                    inclusion = True
+                if inclusion:
+                    extracted.append(line)
+            return '\n'.join(extracted)
+        return text
 
-    def format_multiplechoice(self, prompt, model_output):
-        """Collates the model output for the multiplechoice format."""
-        if len(model_output) == 1:
-            formatted_output = model_output
-        else:
-            formatted_output = model_output.strip('')
-            formatted_output = formatted_output[0]
-        return formatted_output
+def has_all_keys(data: dict, keys:str):
+    for key in keys.split('|'):
+        if key not in data:
+            return False
+    return True
 
-
+def guess_template(data: dict, args):
+    if has_all_keys(data, 'prompt|test|entry_point'):
+        return {
+            "prompt": "{prompt}",
+            "reference": "\n{test}\ncheck({entry_point})\n"
+        }
+    output_delim = '###Output\n'
+    if has_all_keys(data, 'question|choice0|choice1|choice2|choice3|choice4|label'):
+        return {
+            "prompt": "{question}\n選択肢: (0) {choice0} (1) {choice1} (2) {choice2} (3) {choice3} (4) {choice4}\n" + output_delim,
+            "reference": "{label}",
+            "output_format": "line",
+        }
+    return {}
 
 # =====================
 # Utility Function
 # =====================
 
-def load_template(template_path):
-    template = TemplateProcessor(template_path)
+def load_template(args: dict, dataset:List[dict]):
+    template_path = args['template']
+    if template_path:
+        args.load_config(template_path, overwrite=False)
+    if 'prompt' not in args:
+        # テンプレート推論を試みる
+        config = guess_template(dataset[0], args)
+        args.update(config, overwrite=False)
+    template = TemplateProcessor(args)
+    args.verbose_print(f'プロンプトを確認してね//Confirm the prompt format\n{template.create_prompt(dataset[0])}')
+    args.verbose_print(f'参照データも確認してね//Confirm the reference data\n{template.create_reference(dataset[0])}')
     return template
     

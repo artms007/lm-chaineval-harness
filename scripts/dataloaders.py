@@ -1,111 +1,60 @@
-from abc import ABC, abstractmethod
 import json
 from datasets import load_dataset
 
+def load_testdata(dataset_path: str, args):
+    dataset = []
+    n = 10
+    for i in range(1, n + 1):
+        dataset.append({
+            "task_id": f"test_{i}",
+            "prompt": f"test_prompt_{i}",
+            "canonical_solution": f"test_solution_{i}",
+            "test": f"test_test_{i}",
+            "entry_point": f"test_entry_{i}"
+        })
+    args['_dataset_id'] = 'dummy/testdata'
+    return dataset
 
-# =====================
-# Base Class
-# =====================
+def load_jsonl(dataset_path:str, args):
+    dataset = []
+    try:
+        with open(dataset_path, 'r') as f:
+            dataset = [json.loads(line.strip()) for line in f]
+    except FileNotFoundError:
+        raise FileNotFoundError(f"The file {dataset_path} does not exist.")
+    if '/' in dataset_path:
+        _, _, dataset_path = dataset_path.rpartition('/')
+    args['_dataset_id'] = dataset_path.replace('.jsonl', '')
+    return dataset
 
-class DataLoader(ABC):
-    """An abstract base class for all data loaders to enforce the implementation of the load method."""
-    @abstractmethod
-    def load(self) -> list[dict]:
-        pass
+def load_hfdataset(dataset_path:str, args):
+    subargs = args.subset(prefix='dataset_')
+    if 'split' not in subargs:
+        subargs['split'] = args['split|=test']
+    dataset = load_dataset(dataset_path, **subargs)
+    args.verbose_print(dataset_path, dataset)
+    dataset = [{k: v for k, v in item.items()} for item in dataset]
+    if '/' in dataset_path:
+        _, _, dataset_path = dataset_path.rpartition('/')
+    if 'name' in subargs:
+        name = subargs['name']
+        dataset_path = f'{dataset_path}_{name}'
+    args['_dataset_id'] = dataset_path
+    return dataset
 
+def load_dict(args):
+    dataset_path = args['dataset|evaldata']
+    if dataset_path is None:
+        return load_testdata('dummy_testdata', args)
+    elif dataset_path.endswith(".jsonl"):
+        return load_jsonl(dataset_path, args)
+    else:
+        return load_hfdataset(dataset_path, args)
 
-# =====================
-# Testing Code
-# =====================
-
-class TestDataLoader(DataLoader):
-    """A test data loader that returns a predefined list of dictionaries based on the specified dataset number."""
-
-    def __init__(self, dataset_args: dict = None):
-        self.dataset_args = dataset_args if dataset_args is not None else {}
-        self.dataset_num = self.dataset_args.get('num', 2)  # Default number of test data is 2
-
-    def load(self) -> list[dict]:
-        test_data = []
-        for i in range(1, self.dataset_num + 1):
-            test_data.append({
-                "task_id": f"test_{i}",
-                "prompt": f"test_prompt_{i}",
-                "canonical_solution": f"test_solution_{i}",
-                "test": f"test_test_{i}",
-                "entry_point": f"test_entry_{i}"
-            })
-        return test_data
-
-
-# =====================
-# JSON Data Loader
-# =====================
-
-class JSONDataLoader(DataLoader):
-    """A data loader for JSONL files."""
-    def __init__(self, dataset_path: str, dataset_args: dict = None):
-        self.dataset_path = dataset_path
-        self.dataset_args = dataset_args if dataset_args is not None else {}
-        self.dataset_num = self.dataset_args.get('num')
-
-    def load(self) -> list[dict]: 
-        dataset = []
-        try:
-            with open(self.dataset_path, 'r') as f:
-                dataset = [json.loads(line.strip()) for line in f]
-        except FileNotFoundError:
-            raise FileNotFoundError(f"The file {self.dataset_path} does not exist.")
-        dataset = dataset if self.dataset_num is None else dataset[:self.dataset_num]
-        return dataset
-
-
-# =====================
-# HuggingFace Data Loader
-# =====================
-
-class HFDataLoader(DataLoader):
-    """A data loader for datasets available through the Hugging Face datasets library."""
-    def __init__(self, dataset_path: str, dataset_args: dict = None):
-        self.dataset_path = dataset_path
-        self.dataset_args = dataset_args if dataset_args is not None else {}
-        self.dataset_num = self.dataset_args.get('num')
-
-    def load(self) -> list[dict]:
-        split = self.dataset_args.get("split", "test")
-        subset = self.dataset_args.get("subset")
-
-        if subset:
-            dataset = load_dataset(self.dataset_path, subset, split=split)
-        else:
-            dataset = load_dataset(self.dataset_path, split=split)
-        
-        dataset = [{k: v for k, v in item.items()} for item in dataset]
-        dataset = dataset if self.dataset_num is None else dataset[:self.dataset_num]
-        return dataset
-
-
-# =====================
-# Data Loader Factory
-# =====================
-
-class DataLoaderFactory:
-    """Factory class to create appropriate data loader instances based on the provided dataset path."""
-    @staticmethod
-    def create(dataset_path: str, dataset_args: dict = None) -> DataLoader:
-        if dataset_path == "test":
-            return TestDataLoader(dataset_args)
-        elif dataset_path.endswith(".jsonl"):
-            return JSONDataLoader(dataset_path, dataset_args)
-        else:
-            return HFDataLoader(dataset_path, dataset_args)
-
-
-
-# =====================
-# Utility Function
-# =====================
-
-def load_testdata(dataset_path: str, dataset_args: dict = None):
-    loader = DataLoaderFactory.create(dataset_path, dataset_args)
-    return loader.load()
+def load_evaldata(args):
+    dataset_path = args['dataset|evaldata']
+    dataset = load_dict(args)
+    dataset_id = args['_dataset_id']
+    dumpdata = json.dumps(dataset[0], indent=4, ensure_ascii=False)
+    args.verbose_print(f'データセットの確認 {dataset_path}[{dataset_id}] {len(dataset)} entries\n{dumpdata}')
+    return dataset
