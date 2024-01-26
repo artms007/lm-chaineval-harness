@@ -196,8 +196,8 @@ class TemplateProcessor:
 
 class TemplateProcessor:
     def __init__(self, args):
-        self.prompt = args['prompt_template|=']
-        self.reference = args['reference_template|=']
+        self.prompt = args['prompt|=']
+        self.reference = args['reference|=']
         self.begin = args['extract_begin']
         self.end = args['extract_end']
 
@@ -247,14 +247,14 @@ def has_all_keys(data: dict, keys:str):
 def guess_template(data: dict, args):
     if has_all_keys(data, 'prompt|test|entry_point'):
         return {
-            "prompt_template": "{prompt}",
-            "reference_template": "\n{test}\ncheck({entry_point})\n"
+            "prompt": "{prompt}",
+            "reference": "\n{test}\ncheck({entry_point})\n"
         }
     output_delim = '###Output\n'
     if has_all_keys(data, 'question|choice0|choice1|choice2|choice3|choice4|label'):
         return {
-            "prompt_template": "{question}\n選択肢: (0) {choice0} (1) {choice1} (2) {choice2} (3) {choice3} (4) {choice4}\n" + output_delim,
-            "reference_template": "{label}",
+            "prompt": "{question}\n選択肢: (0) {choice0} (1) {choice1} (2) {choice2} (3) {choice3} (4) {choice4}\n" + output_delim,
+            "reference": "{label}",
             "output_format": "line",
         }
     return {}
@@ -264,10 +264,10 @@ def guess_template(data: dict, args):
 # =====================
 
 def load_template(args: dict, dataset:List[dict]):
-    template_path = args['template|template_path']
+    template_path = args['template']
     if template_path:
         args.load_config(template_path, overwrite=False)
-    if 'prompt_template' not in args:
+    if 'prompt' not in args:
         # テンプレート推論を試みる
         config = guess_template(dataset[0], args)
         args.update(config, overwrite=False)
