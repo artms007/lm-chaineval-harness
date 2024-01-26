@@ -28,19 +28,15 @@ class Evaluator(object):
         item[self.metric_id] = 0.0
 
     def score(self, records):
-        #scores = []
         score=0.0
         n = 0
-        for record in tqdm(records, desc=f'Scoring {self.metric_id}={(score/max(n,1)):.3f}'):
+        if self.eval:
+            self.args.verbose_print(f'[{self.metric_id}] {self.eval.description}')
+        for record in tqdm(records, desc=f'{self.metric_id}={(score/max(n,1)):.3f}'):
             if self.metric_id not in record:
                 self.score_item(record)
             score += record[self.metric_id]
             n+=1
-        #     scores.append(record[self.metric_id])
-        # if scores:
-        #     total_score = sum(scores) / len(scores)
-        # else:
-        #     total_score = 0.0
         return {self.metric_id: score}
 
 # HumanEval pass@1
@@ -75,9 +71,9 @@ class CodeEvalEvaluator(Evaluator):
 class ExactMatchEvaluator(Evaluator):
 
     def score_item(self, data):
-        predictions = data['model_output']
-        references = data['reference']
-        data['exact_match'] = self.metric.compute(predictions=predictions, references=references)['exact_match']
+        predictions = [data['model_output']]
+        references = [data['reference']]
+        data['exact_match'] = self.eval.compute(predictions=predictions, references=references)['exact_match']
     
 
 # 日本語用のtokenizer
@@ -135,19 +131,7 @@ class BLEUEvaluator(Evaluator):
         else:
             item_score = self.metric.compute(predictions=predictions, references=references, smooth=True)['bleu']
         self.item_scores.append(item_score)
-        
-        return item_score
-
-    def total_calculate(self, dataset, record, output_lang):
-        predictions = [data['formatted_output'] for data in dataset]
-        references = [[data['reference']] for data in dataset]
-        if output_lang == 'ja':
-            total_score = self.metric.compute(predictions=predictions, references=references, tokenier=tokenize_ja, smooth=True)['bleu']
-        else:
-            total_score = self.metric.compute(predictions=predictions, references=references, smooth=True)['bleu']
-
-        return total_score
-        
+        return item_score        
 
 class F1Evaluator(Evaluator):
     # def calculate(self, dataset, record):

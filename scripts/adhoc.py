@@ -123,6 +123,7 @@ class AdhocArguments(object):
     def __setitem__(self, key, value):
         self._args[key] = value
         setattr(self, key, value)
+        self._used_keys.add(key)
 
     def __contains__(self, key):
         return key in self._args
@@ -132,9 +133,9 @@ class AdhocArguments(object):
             if overwrite or key not in self._args:
                 self._args[key] = value
 
-    def load_config(self, config_file, merge_data=True, overwrite=True):
+    def load_config(self, config_file, merge=True, overwrite=True):
         loaded_data = load_config(config_file)
-        if merge_data:
+        if merge:
             self.update(loaded_data, overwrite=overwrite)
         return loaded_data
 

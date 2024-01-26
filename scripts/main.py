@@ -1,6 +1,7 @@
 from typing import List
 import json
 import os
+import time
 from tqdm import tqdm
 from models import load_model
 from dataloaders import load_evaldata
@@ -44,9 +45,9 @@ def save_records(result_path, records, args=None):
         args.save_as_json(savefile)
 
 def main():
-    args = adhoc_argument_parser()
+    args = adhoc_argument_parser(expand_config='config')
 
-    dataset_id, dataset = load_evaldata(args)
+    dataset = load_evaldata(args)
 
     template = load_template(args, dataset)
 
@@ -61,6 +62,7 @@ def main():
         test_run = args['test_run|=false']
         if result_path is None:
             model_id = (f'{model}').replace('/', '_')
+            dataset_id = args['_dataset_id']
             result_path = f'{dataset_id}_{model_id}.jsonl'
             args.verbose_print(f'保存先//Saving.. {result_path}')
         
@@ -72,6 +74,7 @@ def main():
             result_path = result_path.replace('.json', '_test_run.json')
             records = records[:5]
         
+        elapsed_time = 0
         for i, record in enumerate(tqdm(records, desc=f'Inferencing {model}')):
             source = dataset[i]
             if 'model_input' not in record:
@@ -79,13 +82,22 @@ def main():
             if 'reference' not in record:
                 record['reference'] = template.create_reference(source)
             if 'model_outputs' not in record:
+                start_time = time.time()
                 record['model_outputs'] = model.generate_list(record['model_input'], n=n)
                 record['model_output'] = record['model_outputs'][0]
+                record['inference_time'] = time.time() - start_time
+            if 'inference_time' in record:
+                elapsed_time += record['inference_time']
             if 'extracted_results' not in record:
                 record['extracted_results'] = template.extract(record['model_outputs'])
                 record['extracted_result'] = record['extracted_results'][0]
-            save_records(result_path, records)
-
+            if i % 10 == 9:
+                save_records(result_path, records)
+        args.verbose_print(f'総推論時間//Total inference time {elapsed_time:.1f}s スループット {elapsed_time/(len(dataset)*n):.3f}s')
+        args['total_inference_time'] = elapsed_time
+        args['throughput'] = elapsed_time/(len(dataset)*n)
+        save_records(result_path, records)
+        
     evaluators = compose_evaluators(args)
     if len(evaluators) > 0 and result_path:
         args.verbose_print(f"評価尺度//Metrics: {evaluators}")
@@ -94,7 +106,9 @@ def main():
             results.update(eval.score(records))
             save_records(result_path, records)
         print(f"スコア//Scores: {results}")
-        args.update({'score': results})
+        scores = {'dataset': args['_dataset_id'], 'model': str(model)}
+        scores.update(results)
+        args['score'] = scores
 
     if result_path:
         save_records(result_path, records, args)

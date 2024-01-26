@@ -12,7 +12,8 @@ def load_testdata(dataset_path: str, args):
             "test": f"test_test_{i}",
             "entry_point": f"test_entry_{i}"
         })
-    return 'dummy_testdata', dataset
+    args['_dataset_id'] = 'dummy/testdata'
+    return dataset
 
 def load_jsonl(dataset_path:str, args):
     dataset = []
@@ -23,7 +24,8 @@ def load_jsonl(dataset_path:str, args):
         raise FileNotFoundError(f"The file {dataset_path} does not exist.")
     if '/' in dataset_path:
         _, _, dataset_path = dataset_path.rpartition('/')
-    return dataset_path.replace('.jsonl', ''), dataset
+    args['_dataset_id'] = dataset_path.replace('.jsonl', '')
+    return dataset
 
 def load_hfdataset(dataset_path:str, args):
     subargs = args.subset(prefix='dataset_')
@@ -32,7 +34,13 @@ def load_hfdataset(dataset_path:str, args):
     dataset = load_dataset(dataset_path, **subargs)
     args.verbose_print(dataset_path, dataset)
     dataset = [{k: v for k, v in item.items()} for item in dataset]
-    return dataset_path.replace('/', '_'), dataset
+    if '/' in dataset_path:
+        _, _, dataset_path = dataset_path.rpartition('/')
+    if 'name' in subargs:
+        name = subargs['name']
+        dataset_path = f'{dataset_path}_{name}'
+    args['_dataset_id'] = dataset_path
+    return dataset
 
 def load_dict(args):
     dataset_path = args['dataset|evaldata']
@@ -45,7 +53,8 @@ def load_dict(args):
 
 def load_evaldata(args):
     dataset_path = args['dataset|evaldata']
-    dataset_id, dataset = load_dict(args)
+    dataset = load_dict(args)
+    dataset_id = args['_dataset_id']
     dumpdata = json.dumps(dataset[0], indent=4, ensure_ascii=False)
     args.verbose_print(f'データセットの確認 {dataset_path}[{dataset_id}] {len(dataset)} entries\n{dumpdata}')
-    return dataset_id, dataset
+    return dataset

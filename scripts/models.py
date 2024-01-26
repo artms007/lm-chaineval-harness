@@ -121,7 +121,7 @@ class BedrockModel(Model):
 class HFModel(Model):
     def __init__(self, model_path, args):
         super().__init__(model_path, args)
-        tokenizer = AutoTokenizer.from_pretrained(
+        self.tokenizer = AutoTokenizer.from_pretrained(
             model_path, 
             use_auth_token=args['hf_token'],
             trust_remote_code=True, 
@@ -148,13 +148,13 @@ class HFModel(Model):
                 "temperature": args['temperature|=0.2'],
                 "top_p": args['top_p|=0.95'],
                 "return_full_text": False,
-                "num_return_sequences": self.num_sequences,
+#                "num_return_sequences": self.num_sequences,
             }
 
         self.generator = pipeline(
             "text-generation",
             model=model,
-            tokenizer=tokenizer,
+            tokenizer=self.tokenizer,
             # device=0 if torch.cuda.is_available() else -1,
             use_auth_token=args['hf_token'],
             # 何が指定できるのか？？？
@@ -187,6 +187,7 @@ def load_normal_model(model_path, args):
         return model
     except BaseException as e:
         print(f'Unable to load HuggingFace Model: {model_path}')
+        raise e
         sys.exit(1)
 
 def load_4bit_model(model_path, args):
